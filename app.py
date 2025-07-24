@@ -39,7 +39,7 @@ if st.sidebar.button("Update Staff List"):
         columns=DAYS
     )
 
-st.markdown("### 📅 Weekly Schedule (interactive grid below)")
+st.markdown("### 📅 Weekly Schedule")
 
 # --- Display Editable Schedule Table ---
 schedule_df = st.session_state.schedule.copy()
@@ -53,30 +53,25 @@ edited_schedule = st.data_editor(
 # Convert back to raw values (no emojis)
 raw_schedule = edited_schedule.applymap(lambda x: REVERSE_EMOJIS.get(x, x))
 
-# --- Smart Assignment Logic ---
-def assign_desks(schedule_df, max_desks):
-    assignment = []
-    for day in DAYS:
-        office_staff = schedule_df[schedule_df[day] == "Office"].index.tolist()
-        seated = office_staff[:max_desks]
-        overflow = office_staff[max_desks:]
-        assignment.append((day, seated, overflow))
-    return assignment
-
-if st.button("🔄 Smart Assign Desks"):
-    st.session_state.schedule = edited_schedule.copy()
-    result = assign_desks(raw_schedule, desk_count)
-
-    st.markdown("### ✅ Desk Assignment Summary")
-    for day, seated, overflow in result:
-        st.markdown(f"**📅 {day}**")
-        st.success(f"✔️ Seated (desk): {', '.join(seated) if seated else 'None'}")
-        if overflow:
-            st.warning(f"⚠️ Overflow (no desk): {', '.join(overflow)}")
-
 # --- Export Option ---
+st.divider()
 st.markdown("### 📤 Export")
 export_df = edited_schedule.copy()
 export_df.insert(0, "Name", export_df.index)
 csv = export_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download CSV", csv, "Seat_Rotation_Week.csv", "text/csv")
+
+# --- Bottom Instructions & Credit ---
+st.divider()
+cols = st.columns([1, 2, 1])
+with cols[1]:
+    st.markdown("""<div style='text-align: center; font-size: 16px;'>
+    📝 **How to Use:**<br>
+    1. Edit staff list in the sidebar<br>
+    2. Use the table to assign 🏢 / 💻 / 🌴 / 🔒 per day<br>
+    3. Download the final plan as CSV
+    </div>""", unsafe_allow_html=True)
+with cols[2]:
+    st.markdown("""<div style='text-align: right; font-size: 14px; color: gray;'>
+    Created by Ahmed Abahussain
+    </div>""", unsafe_allow_html=True)
