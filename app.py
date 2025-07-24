@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import random
 
 st.set_page_config("Seat Rotation Planner", layout="wide")
 
@@ -11,9 +10,6 @@ ICONS = {"Office": "🏢 Office", "Remote": "💻 Remote", "Off": "🌴 Off", "L
 # --- Sidebar settings ---
 st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
-office_days_target = st.sidebar.number_input(
-    "Days per person in Office (per week)", min_value=0, max_value=5, value=3
-)
 min_office = st.sidebar.number_input(
     "Min staff in office per day", min_value=1, max_value=5, value=2
 )
@@ -38,26 +34,20 @@ if st.sidebar.button("Update Staff List"):
         index=staff, columns=DAYS
     )
 
-# --- Fair Smart Assign with Min/Max ---
-def smart_assign(schedule_df, min_office, max_office, office_days_target):
+# --- Top-of-List Priority Smart Assign ---
+def smart_assign(schedule_df, min_office, max_office, desk_count):
     new_schedule = schedule_df.copy()
     staff_list = list(new_schedule.index)
-    office_counts = {name: (new_schedule.loc[name] == "Office").sum() for name in staff_list}
+    office_slots = min(max_office, desk_count, len(staff_list))
     for day in DAYS:
         locked = [name for name in staff_list if new_schedule.loc[name, day] == "Locked"]
-        eligible = [name for name in staff_list if name not in locked and office_counts[name] < office_days_target]
-        # Sort by fewest office days so far, shuffle to break ties
-        random.shuffle(eligible)
-        sorted_candidates = sorted(eligible, key=lambda n: office_counts[n])
-        # Guarantee min_office, but not above max_office or available staff
-        need_office = min(max_office, max(min_office, len(sorted_candidates)))
-        office_today = sorted_candidates[:need_office]
+        available = [name for name in staff_list if name not in locked]
+        office_today = available[:office_slots]
         for name in staff_list:
             if new_schedule.loc[name, day] == "Locked":
                 continue
             if name in office_today:
                 new_schedule.loc[name, day] = "Office"
-                office_counts[name] += 1
             else:
                 new_schedule.loc[name, day] = "Remote"
     return new_schedule
@@ -65,7 +55,7 @@ def smart_assign(schedule_df, min_office, max_office, office_days_target):
 # --- Smart Assign Button ---
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(
-        st.session_state.schedule, min_office, max_office, office_days_target
+        st.session_state.schedule, min_office, max_office, desk_count
     )
 
 # --- SMART TABLE ---
@@ -128,10 +118,14 @@ st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 15px;'>
-    🔁 Use 'Smart Assign Desks' to auto-fill seat plan with your targets<br>
-    ✏️ Click any cell to edit (icon + label)<br>
-    🔒 Locked days won't change on auto assign<br>
-    📥 Export your plan (with summary) using the download button
+    <b>How to Use</b><br>
+    • The top staff in your list always get priority for office days.<br>
+    • Change staff order in the sidebar to change priority.<br>
+    • Click <b>Smart Assign Desks</b> to fill the week automatically.<br>
+    • Click any cell in the table to edit it (icon + label).<br>
+    • Locked days will not change on Smart Assign.<br>
+    • Use Min/Max staff in office per day to control office allocation.<br>
+    • Export your plan (with daily counts) using the download button.
     </div>""", unsafe_allow_html=True)
 with cols[2]:
     st.markdown("""<div style='text-align: right; font-size: 13px; color: gray;'>
