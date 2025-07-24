@@ -4,16 +4,17 @@ import pandas as pd
 import random
 
 st.set_page_config(page_title="Seat Rotation Plan", layout="wide")
-st.title("🪑 Weekly Seat Rotation Planner")
+st.title("🗓️ Weekly Seat Rotation Planner")
 
 # --- Config ---
 DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
-WORK_MODES = {
-    "🏢 Office": "Office",
-    "💻 Remote": "Remote",
-    "🌴 Off": "Off",
-    "🔒 Locked": "Locked"
+EMOJIS = {
+    "Office": "🏢 Office",
+    "Remote": "💻 Remote",
+    "Off": "🌴 Off",
+    "Locked": "🔒 Locked"
 }
+REVERSE_EMOJIS = {v: k for k, v in EMOJIS.items()}
 DEFAULT_DESKS = 5
 
 # --- Initial State ---
@@ -21,37 +22,36 @@ if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
 if "schedule" not in st.session_state:
     st.session_state.schedule = pd.DataFrame(
-        [[random.choice(list(WORK_MODES.values())[:-1]) for _ in DAYS] for _ in st.session_state.staff],
+        [[EMOJIS[random.choice(list(EMOJIS.keys())[:-1])] for _ in DAYS] for _ in st.session_state.staff],
         index=st.session_state.staff,
         columns=DAYS
     )
 
 # --- Inputs ---
-st.sidebar.header("Settings")
+st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=DEFAULT_DESKS)
 new_staff = st.sidebar.text_area("Edit Staff List (one per line)", value="\n".join(st.session_state.staff))
 if st.sidebar.button("Update Staff List"):
     st.session_state.staff = [s.strip() for s in new_staff.split("\n") if s.strip()]
     st.session_state.schedule = pd.DataFrame(
-        [[random.choice(list(WORK_MODES.values())[:-1]) for _ in DAYS] for _ in st.session_state.staff],
+        [[EMOJIS["Remote"] for _ in DAYS] for _ in st.session_state.staff],
         index=st.session_state.staff,
         columns=DAYS
     )
 
-st.markdown("### 📅 Weekly Schedule (click to edit)")
+st.markdown("### 📅 Weekly Schedule (interactive grid below)")
 
-# Dropdown display using icons
-def display_mode_selector(row):
-    return {day: st.selectbox(f"{staff} - {day}", list(WORK_MODES.keys()), index=list(WORK_MODES.values()).index(row[day]), key=f"{staff}_{day}")
-            for day in DAYS}
+# --- Display Editable Schedule Table ---
+schedule_df = st.session_state.schedule.copy()
+edited_schedule = st.data_editor(
+    schedule_df,
+    column_config={day: st.column_config.SelectboxColumn(label=day, options=list(EMOJIS.values())) for day in DAYS},
+    use_container_width=True,
+    hide_index=False
+)
 
-updated_schedule = {}
-for staff in st.session_state.staff:
-    row = st.session_state.schedule.loc[staff]
-    updated_schedule[staff] = display_mode_selector(row)
-
-# Convert back to DataFrame with actual values
-new_schedule_df = pd.DataFrame({staff: {day: WORK_MODES[mode] for day, mode in days.items()} for staff, days in updated_schedule.items()}).T
+# Convert back to raw values (no emojis)
+raw_schedule = edited_schedule.applymap(lambda x: REVERSE_EMOJIS.get(x, x))
 
 # --- Smart Assignment Logic ---
 def assign_desks(schedule_df, max_desks):
@@ -63,10 +63,9 @@ def assign_desks(schedule_df, max_desks):
         assignment.append((day, seated, overflow))
     return assignment
 
-# --- Assign Button ---
 if st.button("🔄 Smart Assign Desks"):
-    st.session_state.schedule = new_schedule_df.copy()
-    result = assign_desks(st.session_state.schedule, desk_count)
+    st.session_state.schedule = edited_schedule.copy()
+    result = assign_desks(raw_schedule, desk_count)
 
     st.markdown("### ✅ Desk Assignment Summary")
     for day, seated, overflow in result:
@@ -77,7 +76,7 @@ if st.button("🔄 Smart Assign Desks"):
 
 # --- Export Option ---
 st.markdown("### 📤 Export")
-export_df = new_schedule_df.copy()
+export_df = edited_schedule.copy()
 export_df.insert(0, "Name", export_df.index)
 csv = export_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download CSV", csv, "Seat_Rotation_Week.csv", "text/csv")
