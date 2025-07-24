@@ -4,137 +4,128 @@ import pandas as pd
 import random
 from collections import defaultdict
 
-st.set_page_config(page_title="Seat Rotation Plan", layout="wide")
-st.title("🗓️ Weekly Seat Rotation Planner — Group Sync (Optional)")
-
-# --- Config ---
+# --- Constants ---
 DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
 GROUP_OPTIONS = ["", "A", "B", "C", "D", "E", "F", "G", "H"]
-EMOJIS = {
-    "Office": "🏢 Office",
-    "Remote": "💻 Remote",
-    "Off": "🌴 Off",
-    "Locked": "🔒 Locked"
+STATUS_ICONS = {
+    "Office": "🏢",
+    "Remote": "💻",
+    "Off": "🌴",
+    "Locked": "🔒"
 }
-REVERSE_EMOJIS = {v: k for k, v in EMOJIS.items()}
-DEFAULT_DESKS = 5
+STATUS_OPTIONS = ["Office", "Remote", "Off"]
 
-# --- Initial State ---
+st.set_page_config("Seat Rotation Calendar", layout="wide")
+st.title("📅 Weekly Seat Rotation Planner – Phase 3 (Full Version)")
+
+# --- State Init ---
 if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
 
 if "schedule" not in st.session_state:
-    st.session_state.schedule = pd.DataFrame(
-        [[EMOJIS["Remote"] for _ in DAYS] for _ in st.session_state.staff],
-        index=st.session_state.staff,
-        columns=DAYS
-    )
+    st.session_state.schedule = pd.DataFrame("Remote", index=st.session_state.staff, columns=DAYS)
 
 if "groups" not in st.session_state:
     st.session_state.groups = pd.Series([""] * len(st.session_state.staff), index=st.session_state.staff)
 
-# --- Sidebar ---
+if "fairness" not in st.session_state:
+    st.session_state.fairness = pd.Series([0] * len(st.session_state.staff), index=st.session_state.staff)
+
+# --- Sidebar Config ---
 st.sidebar.header("⚙️ Settings")
-desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=DEFAULT_DESKS)
-use_group_sync = st.sidebar.checkbox("Enable Group Syncing", value=True)
+desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
+group_enabled = st.sidebar.checkbox("Enable Group Syncing", value=True)
 
-new_staff_input = st.sidebar.text_area("Edit Staff List (one per line)", value="\n".join(st.session_state.staff))
-if st.sidebar.button("Update Staff List"):
-    staff_list = [s.strip() for s in new_staff_input.split("\n") if s.strip()]
-    st.session_state.staff = staff_list
-    st.session_state.schedule = pd.DataFrame(
-        [[EMOJIS["Remote"] for _ in DAYS] for _ in staff_list],
-        index=staff_list,
-        columns=DAYS
-    )
-    st.session_state.groups = pd.Series([""] * len(staff_list), index=staff_list)
+staff_input = st.sidebar.text_area("Edit Staff List (one per line)", value="\n".join(st.session_state.staff))
+if st.sidebar.button("Update Staff"):
+    new_staff = [s.strip() for s in staff_input.split("\n") if s.strip()]
+    st.session_state.staff = new_staff
+    st.session_state.schedule = pd.DataFrame("Remote", index=new_staff, columns=DAYS)
+    st.session_state.groups = pd.Series([""] * len(new_staff), index=new_staff)
+    st.session_state.fairness = pd.Series([0] * len(new_staff), index=new_staff)
 
-# --- Editable Table ---
-st.markdown("### 📅 Weekly Schedule")
-combined_df = st.session_state.schedule.copy()
-combined_df.insert(0, "Group", st.session_state.groups.reindex(combined_df.index).fillna(""))
+# --- Calendar UI Table ---
+def draw_calendar():
+    edited = []
+    with st.form("calendar_form"):
+        st.markdown("### 🧾 Weekly Schedule (Calendar View)")
+        grid = []
+        header = ["Name", "Group"] + DAYS
+        grid.append(header)
+        for name in st.session_state.staff:
+            row = [name]
+            row.append(st.selectbox("", GROUP_OPTIONS, key=f"group_{name}", index=GROUP_OPTIONS.index(st.session_state.groups.get(name, ""))))
+            for day in DAYS:
+                current = st.session_state.schedule.loc[name, day]
+                emoji = STATUS_ICONS.get(current, "")
+                row.append(st.selectbox(f"{name}_{day}", STATUS_OPTIONS, key=f"{name}_{day}_status", index=STATUS_OPTIONS.index(current)))
+            edited.append(row)
+        st.form_submit_button("Apply Manual Changes")
+    return edited
 
-edited = st.data_editor(
-    combined_df,
-    column_config={
-        "Group": st.column_config.SelectboxColumn("Group", options=GROUP_OPTIONS)
-    } | {
-        day: st.column_config.SelectboxColumn(label=day, options=list(EMOJIS.values()))
-        for day in DAYS
-    },
-    use_container_width=True,
-    hide_index=False
-)
-
-# Separate schedule and groups
-edited_groups = edited["Group"]
-edited_schedule = edited.drop(columns=["Group"]).applymap(lambda x: REVERSE_EMOJIS.get(x, x))
-
-# --- Smart Assignment Logic Fix ---
-def smart_assign(schedule_df, group_series, max_desks, group_sync_enabled):
+# --- Smart Logic (Final Version) ---
+def smart_assign(schedule_df, group_series, fairness_scores, desk_limit, sync_grouping):
     updated = schedule_df.copy()
+    fair = fairness_scores.copy()
     for day in DAYS:
-        locked = [name for name in schedule_df.index if schedule_df.loc[name, day] == "Locked"]
-        available = [name for name in schedule_df.index if name not in locked]
-
-        if group_sync_enabled:
-            group_buckets = defaultdict(list)
-            for name in available:
-                group = group_series.get(name, "")
-                group_buckets[group].append(name)
-
-            seated = []
-            overflow = []
-            for group, members in group_buckets.items():
-                if len(seated) + len(members) <= max_desks:
-                    seated.extend(members)
-                else:
-                    overflow.extend(members)
+        candidates = [name for name in schedule_df.index if schedule_df.loc[name, day] != "Locked"]
+        assigned = []
+        if sync_grouping:
+            grouped = defaultdict(list)
+            for name in candidates:
+                grouped[group_series.get(name, "")].append(name)
+            for group, members in grouped.items():
+                if len(assigned) + len(members) <= desk_limit:
+                    assigned.extend(members)
         else:
-            shuffled = available.copy()
-            random.shuffle(shuffled)
-            seated = shuffled[:max_desks]
-            overflow = shuffled[max_desks:]
+            sorted_candidates = sorted(candidates, key=lambda name: fair[name])
+            assigned = sorted_candidates[:desk_limit]
 
         for name in schedule_df.index:
-            if name in locked:
-                updated.loc[name, day] = EMOJIS["Locked"]
-            elif name in seated:
-                updated.loc[name, day] = EMOJIS["Office"]
-            elif name in overflow:
-                updated.loc[name, day] = EMOJIS["Remote"]
+            if schedule_df.loc[name, day] == "Locked":
+                updated.loc[name, day] = "Locked"
+            elif name in assigned:
+                updated.loc[name, day] = "Office"
+                fair[name] += 1
             else:
-                updated.loc[name, day] = EMOJIS["Remote"]
-    return updated
+                updated.loc[name, day] = "Remote"
+    return updated, fair
 
-# --- Apply Smart Assignment ---
-if st.button("🔄 Smart Assign Desks"):
-    result = smart_assign(edited_schedule, edited_groups, desk_count, use_group_sync)
-    st.session_state.schedule = result.copy()
-    st.session_state.groups = edited_groups.copy()
+# --- Smart Assign Button ---
+if st.button("🧠 Smart Assign Desks"):
+    updated_schedule, updated_fairness = smart_assign(
+        st.session_state.schedule,
+        st.session_state.groups,
+        st.session_state.fairness,
+        desk_count,
+        group_enabled
+    )
+    st.session_state.schedule = updated_schedule
+    st.session_state.fairness = updated_fairness
 
-# --- Export ---
-st.divider()
-st.markdown("### 📤 Export")
-export_df = st.session_state.schedule.copy()
-export_df.insert(0, "Name", export_df.index)
-export_df.insert(1, "Group", st.session_state.groups)
-csv = export_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV", csv, "Seat_Rotation_With_Groups.csv", "text/csv")
+# --- Render Weekly Calendar Grid ---
+calendar = []
+calendar.append(["Name", "Group"] + DAYS)
+for name in st.session_state.staff:
+    row = [name, st.session_state.groups[name]] + [STATUS_ICONS.get(st.session_state.schedule.loc[name, d], "❔") for d in DAYS]
+    calendar.append(row)
+st.markdown("### 🗂️ Calendar View")
+st.dataframe(pd.DataFrame(calendar[1:], columns=calendar[0]), use_container_width=True)
+
+# --- Fairness Table ---
+st.markdown("### ⚖️ Fairness Scoring")
+st.dataframe(st.session_state.fairness.sort_values(ascending=False).rename("Desk Count"))
 
 # --- Footer ---
 st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
-    st.markdown("""<div style='text-align: center; font-size: 16px;'>
-    📝 **How to Use:**<br>
-    1. Assign groups using the dropdown next to each name<br>
-    2. Edit the weekly schedule as needed<br>
-    3. Toggle group syncing ON/OFF from sidebar<br>
-    4. Click Smart Assign to auto-allocate desks<br>
-    5. Export the plan if needed
+    st.markdown("""<div style='text-align: center; font-size: 15px;'>
+    ✏️ Use the dropdowns to manually update the week<br>
+    ✅ Click 'Smart Assign Desks' for auto-planning<br>
+    🔁 Group Sync keeps teams together (optional)
     </div>""", unsafe_allow_html=True)
 with cols[2]:
-    st.markdown("""<div style='text-align: right; font-size: 14px; color: gray;'>
+    st.markdown("""<div style='text-align: right; font-size: 13px; color: gray;'>
     Created by Ahmed Abahussain
     </div>""", unsafe_allow_html=True)
