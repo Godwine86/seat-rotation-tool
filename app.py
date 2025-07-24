@@ -3,44 +3,37 @@ import streamlit as st
 import pandas as pd
 import random
 
-# --- Constants ---
-DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
-STATUS_ICONS = {
-    "Office": "🏢 Office",
-    "Remote": "💻 Remote",
-    "Off": "🌴 Off",
-    "Locked": "🔒 Locked"
-}
-STATUS_OPTIONS = ["Office", "Remote", "Off", "Locked"]
-
 st.set_page_config("Seat Rotation Planner", layout="wide")
-st.title("🪑 Weekly Seat Rotation Planner")
 
-# --- Initialize State ---
+DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
+STATUSES = ["Office", "Remote", "Off", "Locked"]
+ICONS = {"Office": "🏢 Office", "Remote": "💻 Remote", "Off": "🌴 Off", "Locked": "🔒 Locked"}
+
+# Initialize session state
 if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
 
 if "schedule" not in st.session_state:
     st.session_state.schedule = pd.DataFrame("Remote", index=st.session_state.staff, columns=DAYS)
 
-# --- Sidebar Settings ---
+# Sidebar settings
 st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
 
-staff_input = st.sidebar.text_area("Edit Staff List (one per line)", value="\n".join(st.session_state.staff))
+staff_input = st.sidebar.text_area("Edit Staff List", value="\n".join(st.session_state.staff))
 if st.sidebar.button("Update Staff List"):
     staff = [s.strip() for s in staff_input.split("\n") if s.strip()]
     st.session_state.staff = staff
     st.session_state.schedule = pd.DataFrame("Remote", index=staff, columns=DAYS)
 
-# --- Smart Assignment Logic ---
+# Smart assign desks
 def smart_assign(schedule_df, desk_limit):
     new_schedule = schedule_df.copy()
     for day in DAYS:
-        editable_staff = [name for name in new_schedule.index if new_schedule.loc[name, day] != "Locked"]
-        random.shuffle(editable_staff)
-        for i, name in enumerate(new_schedule.index):
-            if new_schedule.loc[name, day] == "Locked":
+        editable = [name for name in schedule_df.index if schedule_df.loc[name, day] != "Locked"]
+        random.shuffle(editable)
+        for i, name in enumerate(schedule_df.index):
+            if schedule_df.loc[name, day] == "Locked":
                 continue
             new_schedule.loc[name, day] = "Office" if i < desk_limit else "Remote"
     return new_schedule
@@ -48,22 +41,31 @@ def smart_assign(schedule_df, desk_limit):
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
 
-# --- Editable Calendar Table ---
+# Weekly Calendar Grid View
 st.markdown("### 📅 Weekly Schedule")
-edited_schedule = st.session_state.schedule.copy()
+with st.container():
+    table = []
+    header = ["**Name**"] + [f"**{day}**" for day in DAYS]
+    table.append(header)
 
-for name in st.session_state.staff:
-    cols = st.columns(len(DAYS) + 1)
-    cols[0].markdown(f"**{name}**")
-    for i, day in enumerate(DAYS):
-        current = st.session_state.schedule.loc[name, day]
-        new_status = cols[i+1].selectbox("", STATUS_OPTIONS, index=STATUS_OPTIONS.index(current), key=f"{name}_{day}")
-        edited_schedule.loc[name, day] = new_status
+    for name in st.session_state.staff:
+        row = [f"**{name}**"]
+        for day in DAYS:
+            current = st.session_state.schedule.loc[name, day]
+            label = ICONS.get(current, current)
+            new_val = st.selectbox("", STATUSES, index=STATUSES.index(current),
+                                   key=f"{name}_{day}", label_visibility="collapsed")
+            st.session_state.schedule.loc[name, day] = new_val
+            row.append(ICONS[new_val])
+        table.append(row)
 
-st.session_state.schedule = edited_schedule
+    # render display table
+    st.markdown("#### Current View")
+    styled_df = st.session_state.schedule.replace(ICONS)
+    st.dataframe(styled_df, use_container_width=True)
 
-# --- Daily Summary ---
-st.markdown("### 📊 Daily Summary (Office vs Remote)")
+# Daily summary table
+st.markdown("### 📊 Daily Summary")
 summary = {"Day": [], "🏢 Office": [], "💻 Remote": []}
 for day in DAYS:
     counts = st.session_state.schedule[day].value_counts()
@@ -72,21 +74,21 @@ for day in DAYS:
     summary["💻 Remote"].append(counts.get("Remote", 0))
 st.dataframe(pd.DataFrame(summary), use_container_width=True)
 
-# --- Export Feature ---
+# Export
 def convert_df(df):
     return df.to_csv(index=True).encode("utf-8")
 
 csv = convert_df(st.session_state.schedule)
 st.download_button("📥 Export as CSV", data=csv, file_name="weekly_schedule.csv", mime="text/csv")
 
-# --- Footer Instructions ---
+# Footer
 st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 15px;'>
     🧠 Click "Smart Assign Desks" to fill seats automatically<br>
-    ✏️ Manually adjust status per staff/day using the dropdowns<br>
-    🔒 Use "Locked" to prevent Smart Assign from overriding a day<br>
+    ✏️ Adjust each cell with dropdowns<br>
+    🔒 Use "Locked" to protect a day from reassignment<br>
     📤 Export the schedule to CSV using the download button
     </div>""", unsafe_allow_html=True)
 with cols[2]:
