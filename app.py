@@ -7,15 +7,13 @@ DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
 STATUSES = ["Office", "Remote", "Off", "Locked"]
 ICONS = {"Office": "🏢 Office", "Remote": "💻 Remote", "Off": "🌴 Off", "Locked": "🔒 Locked"}
 
-# --- Sidebar settings ---
+# --- Sidebar Settings ---
 st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
-min_office = st.sidebar.number_input(
-    "Min staff in office per day", min_value=1, max_value=5, value=2
-)
-max_office = st.sidebar.number_input(
-    "Max staff in office per day", min_value=min_office, max_value=5, value=3
-)
+min_office = st.sidebar.number_input("Min staff in office per day", min_value=1, max_value=5, value=2)
+max_office = st.sidebar.number_input("Max staff in office per day", min_value=min_office, max_value=5, value=3)
+office_days_target = st.sidebar.number_input("Target office days per person (per week)", min_value=0, max_value=5, value=3)
+remote_days_target = st.sidebar.number_input("Target remote days per person (per week)", min_value=0, max_value=5, value=2)
 
 if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
@@ -34,28 +32,40 @@ if st.sidebar.button("Update Staff List"):
         index=staff, columns=DAYS
     )
 
-# --- Top-of-List Priority Smart Assign ---
-def smart_assign(schedule_df, min_office, max_office, desk_count):
+# --- Smart Assign (Top of List, but respects targets as much as possible) ---
+def smart_assign(schedule_df, min_office, max_office, desk_count, office_days_target, remote_days_target):
     new_schedule = schedule_df.copy()
     staff_list = list(new_schedule.index)
+    office_counts = {name: (new_schedule.loc[name] == "Office").sum() for name in staff_list}
+    remote_counts = {name: (new_schedule.loc[name] == "Remote").sum() for name in staff_list}
     office_slots = min(max_office, desk_count, len(staff_list))
     for day in DAYS:
         locked = [name for name in staff_list if new_schedule.loc[name, day] == "Locked"]
         available = [name for name in staff_list if name not in locked]
-        office_today = available[:office_slots]
-        for name in staff_list:
-            if new_schedule.loc[name, day] == "Locked":
-                continue
+        # Prioritize those under their office_days_target, then fill with others if needed
+        preferred = [name for name in available if office_counts[name] < office_days_target]
+        others = [name for name in available if name not in preferred]
+        office_today = preferred[:office_slots]
+        if len(office_today) < min_office:
+            # Not enough under-target? Fill remainder with next in line.
+            extra_needed = min_office - len(office_today)
+            office_today += others[:extra_needed]
+        elif len(office_today) < office_slots:
+            office_today += others[:office_slots - len(office_today)]
+        # Assign statuses
+        for name in available:
             if name in office_today:
                 new_schedule.loc[name, day] = "Office"
+                office_counts[name] += 1
             else:
                 new_schedule.loc[name, day] = "Remote"
+                remote_counts[name] += 1
     return new_schedule
 
 # --- Smart Assign Button ---
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(
-        st.session_state.schedule, min_office, max_office, desk_count
+        st.session_state.schedule, min_office, max_office, desk_count, office_days_target, remote_days_target
     )
 
 # --- SMART TABLE ---
@@ -115,19 +125,20 @@ st.dataframe(pd.DataFrame(summary), use_container_width=True)
 
 # --- Footer instructions ---
 st.divider()
-cols = st.columns([1, 2, 1])
-with cols[1]:
-    st.markdown("""<div style='text-align: center; font-size: 15px;'>
-    <b>How to Use</b><br>
-    • The top staff in your list always get priority for office days.<br>
-    • Change staff order in the sidebar to change priority.<br>
-    • Click <b>Smart Assign Desks</b> to fill the week automatically.<br>
-    • Click any cell in the table to edit it (icon + label).<br>
-    • Locked days will not change on Smart Assign.<br>
-    • Use Min/Max staff in office per day to control office allocation.<br>
-    • Export your plan (with daily counts) using the download button.
-    </div>""", unsafe_allow_html=True)
-with cols[2]:
-    st.markdown("""<div style='text-align: right; font-size: 13px; color: gray;'>
-    Created by Ahmed Abahussain
-    </div>""", unsafe_allow_html=True)
+st.markdown("""
+<div style='text-align: center; font-size: 16px; line-height: 1.7;'>
+<b>How to Use</b><br>
+• <b>Staff order = office priority:</b> Top of the list gets office first.<br>
+• Use <b>Min/Max staff in office per day</b> to control daily office numbers.<br>
+• Set <b>Target office/remote days</b> to influence distribution per person.<br>
+• Click <b>Smart Assign Desks</b> for an automatic fill (priority by list order).<br>
+• <b>Locked</b> days are never changed by Smart Assign.<br>
+• Click any cell to edit or lock manually.<br>
+• Download your schedule (with daily counts) as CSV.
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    "<div style='text-align: right; font-size: 13px; color: gray;'>Created by Ahmed Abahussain</div>",
+    unsafe_allow_html=True,
+)
