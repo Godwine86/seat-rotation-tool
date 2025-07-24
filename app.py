@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import random
@@ -41,34 +40,34 @@ def smart_assign(schedule_df, desk_limit):
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
 
-# Interactive Calendar Table
-st.markdown("### 📅 Weekly Schedule")
-with st.container():
-    for name in st.session_state.staff:
-        cols = st.columns(len(DAYS) + 1)
-        cols[0].markdown(f"**{name}**")
-        for i, day in enumerate(DAYS):
-            current = st.session_state.schedule.loc[name, day]
-            label = f"{ICONS.get(current, '')} {current}"
-            new_status = cols[i+1].selectbox(
-                "", STATUSES, index=STATUSES.index(current),
-                key=f"{name}_{day}", label_visibility="collapsed"
-            )
-            st.session_state.schedule.loc[name, day] = new_status
+# Unified Interactive Table
+st.markdown("### 📅 Weekly Schedule (Click any cell to change status)")
+edited_schedule = st.session_state.schedule.copy()
 
-# Current Status Table (Visual)
-st.markdown("### 🧾 Current Weekly View")
-icon_df = st.session_state.schedule.applymap(lambda x: f"{ICONS.get(x, '')} {x}")
-st.dataframe(icon_df, use_container_width=True)
+for row_idx, name in enumerate(st.session_state.staff):
+    cols = st.columns([1] + [2]*len(DAYS))
+    cols[0].markdown(f"**{name}**")
+    for col_idx, day in enumerate(DAYS):
+        current = edited_schedule.loc[name, day]
+        display = f"{ICONS.get(current, '')} {current}"
+        new_status = cols[col_idx+1].selectbox(
+            "", STATUSES, index=STATUSES.index(current),
+            key=f"{name}_{day}_cell", label_visibility="collapsed"
+        )
+        edited_schedule.loc[name, day] = new_status
 
-# Daily Summary
+st.session_state.schedule = edited_schedule
+
+# Daily summary
 st.markdown("### 📊 Daily Summary")
-summary = {"Day": [], "🏢 Office": [], "💻 Remote": []}
+summary = {"Day": [], "🏢 Office": [], "💻 Remote": [], "🌴 Off": [], "🔒 Locked": []}
 for day in DAYS:
     counts = st.session_state.schedule[day].value_counts()
     summary["Day"].append(day)
     summary["🏢 Office"].append(counts.get("Office", 0))
     summary["💻 Remote"].append(counts.get("Remote", 0))
+    summary["🌴 Off"].append(counts.get("Off", 0))
+    summary["🔒 Locked"].append(counts.get("Locked", 0))
 st.dataframe(pd.DataFrame(summary), use_container_width=True)
 
 # Export
@@ -83,7 +82,7 @@ cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 15px;'>
     🔁 Use 'Smart Assign Desks' to auto-fill seat plan<br>
-    ✏️ Click icons to manually change Office/Remote/Off/Locked<br>
+    ✏️ Click any cell to change Office/Remote/Off/Locked<br>
     🔒 Locked days won't change on auto assign<br>
     📥 Export your plan using the download button
     </div>""", unsafe_allow_html=True)
