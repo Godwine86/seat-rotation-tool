@@ -25,7 +25,7 @@ if "staff" not in st.session_state:
 
 if "schedule" not in st.session_state:
     st.session_state.schedule = pd.DataFrame(
-        [[EMOJIS[random.choice(["Office", "Remote", "Off"])] for _ in DAYS] for _ in st.session_state.staff],
+        [[EMOJIS["Remote"] for _ in DAYS] for _ in st.session_state.staff],
         index=st.session_state.staff,
         columns=DAYS
     )
@@ -47,9 +47,9 @@ if st.sidebar.button("Update Staff List"):
         index=staff_list,
         columns=DAYS
     )
-    st.session_state.groups = pd.Series([""] * len(st.session_state.staff), index=st.session_state.staff)
+    st.session_state.groups = pd.Series([""] * len(staff_list), index=staff_list)
 
-# --- UI Table with Group Column ---
+# --- Editable Table ---
 st.markdown("### 📅 Weekly Schedule")
 combined_df = st.session_state.schedule.copy()
 combined_df.insert(0, "Group", st.session_state.groups.reindex(combined_df.index).fillna(""))
@@ -70,18 +70,18 @@ edited = st.data_editor(
 edited_groups = edited["Group"]
 edited_schedule = edited.drop(columns=["Group"]).applymap(lambda x: REVERSE_EMOJIS.get(x, x))
 
-# --- Smart Assignment with Optional Group Sync ---
+# --- Smart Assignment Logic Fix ---
 def smart_assign(schedule_df, group_series, max_desks, group_sync_enabled):
     updated = schedule_df.copy()
     for day in DAYS:
-        locked = schedule_df[schedule_df[day] == "Locked"].index.tolist()
+        locked = [name for name in schedule_df.index if schedule_df.loc[name, day] == "Locked"]
+        available = [name for name in schedule_df.index if name not in locked]
 
         if group_sync_enabled:
             group_buckets = defaultdict(list)
-            for name in schedule_df.index:
-                if schedule_df.loc[name, day] == "Office" and name not in locked:
-                    group = group_series.get(name, "")
-                    group_buckets[group].append(name)
+            for name in available:
+                group = group_series.get(name, "")
+                group_buckets[group].append(name)
 
             seated = []
             overflow = []
@@ -91,24 +91,23 @@ def smart_assign(schedule_df, group_series, max_desks, group_sync_enabled):
                 else:
                     overflow.extend(members)
         else:
-            office_staff = [name for name in schedule_df.index
-                            if schedule_df.loc[name, day] == "Office" and name not in locked]
-            seated = office_staff[:max_desks]
-            overflow = office_staff[max_desks:]
+            shuffled = available.copy()
+            random.shuffle(shuffled)
+            seated = shuffled[:max_desks]
+            overflow = shuffled[max_desks:]
 
         for name in schedule_df.index:
-            current_mode = schedule_df.loc[name, day]
-            if current_mode == "Locked":
+            if name in locked:
                 updated.loc[name, day] = EMOJIS["Locked"]
             elif name in seated:
                 updated.loc[name, day] = EMOJIS["Office"]
             elif name in overflow:
                 updated.loc[name, day] = EMOJIS["Remote"]
             else:
-                updated.loc[name, day] = EMOJIS[current_mode]
+                updated.loc[name, day] = EMOJIS["Remote"]
     return updated
 
-# --- Assign Button ---
+# --- Apply Smart Assignment ---
 if st.button("🔄 Smart Assign Desks"):
     result = smart_assign(edited_schedule, edited_groups, desk_count, use_group_sync)
     st.session_state.schedule = result.copy()
