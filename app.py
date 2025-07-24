@@ -6,24 +6,28 @@ st.set_page_config("Seat Rotation Planner", layout="wide")
 
 DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
 STATUSES = ["Office", "Remote", "Off", "Locked"]
-ICONS = {"Office": "🏢", "Remote": "💻", "Off": "🌴", "Locked": "🔒"}
+ICONS = {"Office": "🏢 Office", "Remote": "💻 Remote", "Off": "🌴 Off", "Locked": "🔒 Locked"}
 
 # Initialize session state
 if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
-
 if "schedule" not in st.session_state:
-    st.session_state.schedule = pd.DataFrame("Remote", index=st.session_state.staff, columns=DAYS)
+    st.session_state.schedule = pd.DataFrame(
+        [["Remote"] * len(DAYS) for _ in st.session_state.staff],
+        index=st.session_state.staff, columns=DAYS
+    )
 
 # Sidebar settings
 st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
-
 staff_input = st.sidebar.text_area("Edit Staff List", value="\n".join(st.session_state.staff))
 if st.sidebar.button("Update Staff List"):
     staff = [s.strip() for s in staff_input.split("\n") if s.strip()]
     st.session_state.staff = staff
-    st.session_state.schedule = pd.DataFrame("Remote", index=staff, columns=DAYS)
+    st.session_state.schedule = pd.DataFrame(
+        [["Remote"] * len(DAYS) for _ in staff],
+        index=staff, columns=DAYS
+    )
 
 # Smart assign desks
 def smart_assign(schedule_df, desk_limit):
@@ -40,23 +44,32 @@ def smart_assign(schedule_df, desk_limit):
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
 
-# Unified Interactive Table
-st.markdown("### 📅 Weekly Schedule (Click any cell to change status)")
-edited_schedule = st.session_state.schedule.copy()
+# --- SMART TABLE ---
+st.markdown("### 📅 Weekly Schedule (Smart Table)")
 
-for row_idx, name in enumerate(st.session_state.staff):
-    cols = st.columns([1] + [2]*len(DAYS))
-    cols[0].markdown(f"**{name}**")
-    for col_idx, day in enumerate(DAYS):
-        current = edited_schedule.loc[name, day]
-        display = f"{ICONS.get(current, '')} {current}"
-        new_status = cols[col_idx+1].selectbox(
-            "", STATUSES, index=STATUSES.index(current),
-            key=f"{name}_{day}_cell", label_visibility="collapsed"
-        )
-        edited_schedule.loc[name, day] = new_status
+icon_schedule = st.session_state.schedule.replace(ICONS)
 
-st.session_state.schedule = edited_schedule
+edited = st.data_editor(
+    icon_schedule,
+    column_config={
+        day: st.column_config.SelectboxColumn(
+            label=day, 
+            options=list(ICONS.values())
+        ) for day in DAYS
+    },
+    key="main_table",
+    use_container_width=True,
+    hide_index=False,
+    num_rows="dynamic"
+)
+
+# Update session state with selected values (convert back to raw status)
+reverse_icons = {v: k for k, v in ICONS.items()}
+for name in st.session_state.staff:
+    for day in DAYS:
+        value = edited.loc[name, day]
+        if value in reverse_icons:
+            st.session_state.schedule.loc[name, day] = reverse_icons[value]
 
 # Daily summary
 st.markdown("### 📊 Daily Summary")
