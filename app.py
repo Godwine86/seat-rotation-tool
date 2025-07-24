@@ -7,7 +7,7 @@ st.set_page_config("Seat Rotation Planner", layout="wide")
 
 DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
 STATUSES = ["Office", "Remote", "Off", "Locked"]
-ICONS = {"Office": "🏢 Office", "Remote": "💻 Remote", "Off": "🌴 Off", "Locked": "🔒 Locked"}
+ICONS = {"Office": "🏢", "Remote": "💻", "Off": "🌴", "Locked": "🔒"}
 
 # Initialize session state
 if "staff" not in st.session_state:
@@ -41,30 +41,27 @@ def smart_assign(schedule_df, desk_limit):
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
 
-# Weekly Calendar Grid View
+# Interactive Calendar Table
 st.markdown("### 📅 Weekly Schedule")
 with st.container():
-    table = []
-    header = ["**Name**"] + [f"**{day}**" for day in DAYS]
-    table.append(header)
-
     for name in st.session_state.staff:
-        row = [f"**{name}**"]
-        for day in DAYS:
+        cols = st.columns(len(DAYS) + 1)
+        cols[0].markdown(f"**{name}**")
+        for i, day in enumerate(DAYS):
             current = st.session_state.schedule.loc[name, day]
-            label = ICONS.get(current, current)
-            new_val = st.selectbox("", STATUSES, index=STATUSES.index(current),
-                                   key=f"{name}_{day}", label_visibility="collapsed")
-            st.session_state.schedule.loc[name, day] = new_val
-            row.append(ICONS[new_val])
-        table.append(row)
+            label = f"{ICONS.get(current, '')} {current}"
+            new_status = cols[i+1].selectbox(
+                "", STATUSES, index=STATUSES.index(current),
+                key=f"{name}_{day}", label_visibility="collapsed"
+            )
+            st.session_state.schedule.loc[name, day] = new_status
 
-    # render display table
-    st.markdown("#### Current View")
-    styled_df = st.session_state.schedule.replace(ICONS)
-    st.dataframe(styled_df, use_container_width=True)
+# Current Status Table (Visual)
+st.markdown("### 🧾 Current Weekly View")
+icon_df = st.session_state.schedule.applymap(lambda x: f"{ICONS.get(x, '')} {x}")
+st.dataframe(icon_df, use_container_width=True)
 
-# Daily summary table
+# Daily Summary
 st.markdown("### 📊 Daily Summary")
 summary = {"Day": [], "🏢 Office": [], "💻 Remote": []}
 for day in DAYS:
@@ -77,7 +74,6 @@ st.dataframe(pd.DataFrame(summary), use_container_width=True)
 # Export
 def convert_df(df):
     return df.to_csv(index=True).encode("utf-8")
-
 csv = convert_df(st.session_state.schedule)
 st.download_button("📥 Export as CSV", data=csv, file_name="weekly_schedule.csv", mime="text/csv")
 
@@ -86,10 +82,10 @@ st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 15px;'>
-    🧠 Click "Smart Assign Desks" to fill seats automatically<br>
-    ✏️ Adjust each cell with dropdowns<br>
-    🔒 Use "Locked" to protect a day from reassignment<br>
-    📤 Export the schedule to CSV using the download button
+    🔁 Use 'Smart Assign Desks' to auto-fill seat plan<br>
+    ✏️ Click icons to manually change Office/Remote/Off/Locked<br>
+    🔒 Locked days won't change on auto assign<br>
+    📥 Export your plan using the download button
     </div>""", unsafe_allow_html=True)
 with cols[2]:
     st.markdown("""<div style='text-align: right; font-size: 13px; color: gray;'>
