@@ -22,7 +22,7 @@ if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
 if "schedule" not in st.session_state:
     st.session_state.schedule = pd.DataFrame(
-        [[EMOJIS[random.choice(list(EMOJIS.keys())[:-1])] for _ in DAYS] for _ in st.session_state.staff],
+        [[EMOJIS[random.choice(["Office", "Remote", "Off"])] for _ in DAYS] for _ in st.session_state.staff],
         index=st.session_state.staff,
         columns=DAYS
     )
@@ -41,7 +41,7 @@ if st.sidebar.button("Update Staff List"):
 
 st.markdown("### 📅 Weekly Schedule")
 
-# --- Display Editable Schedule Table ---
+# --- Editable Table ---
 schedule_df = st.session_state.schedule.copy()
 edited_schedule = st.data_editor(
     schedule_df,
@@ -50,26 +50,49 @@ edited_schedule = st.data_editor(
     hide_index=False
 )
 
-# Convert back to raw values (no emojis)
+# Convert to raw (non-emoji) values
 raw_schedule = edited_schedule.applymap(lambda x: REVERSE_EMOJIS.get(x, x))
 
-# --- Export Option ---
+# --- Smart Assignment Logic ---
+def apply_smart_balance(schedule_df, max_desks):
+    updated = schedule_df.copy()
+    for day in DAYS:
+        office_candidates = schedule_df[schedule_df[day] == "Office"].index.tolist()
+        seated = office_candidates[:max_desks]
+        overflow = office_candidates[max_desks:]
+        for person in schedule_df.index:
+            if schedule_df.loc[person, day] == "Locked":
+                continue  # Preserve locked
+            elif person in seated:
+                updated.loc[person, day] = "🏢 Office"
+            elif person in overflow:
+                updated.loc[person, day] = "💻 Remote"  # Push overflowed to Remote
+            else:
+                updated.loc[person, day] = EMOJIS[schedule_df.loc[person, day]]
+    return updated
+
+# --- Smart Balance Button ---
+if st.button("🔄 Smart Assign Desks"):
+    st.session_state.schedule = apply_smart_balance(raw_schedule, desk_count)
+
+# --- Export Section ---
 st.divider()
 st.markdown("### 📤 Export")
-export_df = edited_schedule.copy()
+export_df = st.session_state.schedule.copy()
 export_df.insert(0, "Name", export_df.index)
 csv = export_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download CSV", csv, "Seat_Rotation_Week.csv", "text/csv")
 
-# --- Bottom Instructions & Credit ---
+# --- Instructions & Credits ---
 st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 16px;'>
     📝 **How to Use:**<br>
     1. Edit staff list in the sidebar<br>
-    2. Use the table to assign 🏢 / 💻 / 🌴 / 🔒 per day<br>
-    3. Download the final plan as CSV
+    2. Assign 🏢 / 💻 / 🌴 / 🔒 per day<br>
+    3. Click Smart Assign to balance desk use<br>
+    4. Download the plan as CSV
     </div>""", unsafe_allow_html=True)
 with cols[2]:
     st.markdown("""<div style='text-align: right; font-size: 14px; color: gray;'>
