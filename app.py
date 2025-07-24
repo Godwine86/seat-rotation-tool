@@ -32,14 +32,30 @@ if st.sidebar.button("Update Staff List"):
 # Smart assign desks
 def smart_assign(schedule_df, desk_limit):
     new_schedule = schedule_df.copy()
+    # Count how many times each staff has "Office" (start with existing values)
+    office_counts = {name: (new_schedule.loc[name] == "Office").sum() for name in new_schedule.index}
+    
     for day in DAYS:
-        editable = [name for name in schedule_df.index if schedule_df.loc[name, day] != "Locked"]
-        random.shuffle(editable)
-        for i, name in enumerate(schedule_df.index):
-            if schedule_df.loc[name, day] == "Locked":
-                continue
-            new_schedule.loc[name, day] = "Office" if i < desk_limit else "Remote"
+        # Respect locked cells
+        locked = [name for name in new_schedule.index if new_schedule.loc[name, day] == "Locked"]
+        available = [name for name in new_schedule.index if name not in locked]
+        
+        # Sort available staff by FEWEST office days so far (ascending), break ties randomly
+        shuffled = available.copy()
+        random.shuffle(shuffled)
+        sorted_by_fairness = sorted(shuffled, key=lambda name: office_counts[name])
+        
+        # Assign Office up to desk_limit, rest Remote (leave Locked untouched)
+        office_today = sorted_by_fairness[:desk_limit]
+        for name in available:
+            if name in office_today:
+                new_schedule.loc[name, day] = "Office"
+                office_counts[name] += 1
+            else:
+                new_schedule.loc[name, day] = "Remote"
+        # (Locked days retain their status)
     return new_schedule
+
 
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
