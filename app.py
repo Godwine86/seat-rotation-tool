@@ -2,108 +2,92 @@
 import streamlit as st
 import pandas as pd
 import random
-from collections import defaultdict
 
 # --- Constants ---
 DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
-GROUP_OPTIONS = ["", "A", "B", "C", "D", "E", "F", "G", "H"]
 STATUS_ICONS = {
-    "Office": "🏢",
-    "Remote": "💻",
-    "Off": "🌴",
-    "Locked": "🔒"
+    "Office": "🏢 Office",
+    "Remote": "💻 Remote",
+    "Off": "🌴 Off",
+    "Locked": "🔒 Locked"
 }
-STATUS_OPTIONS = ["Office", "Remote", "Off"]
+STATUS_OPTIONS = ["Office", "Remote", "Off", "Locked"]
 
-st.set_page_config("Seat Rotation Calendar", layout="wide")
-st.title("📅 Weekly Seat Rotation Planner – Phase 3 (Simplified)")
+st.set_page_config("Seat Rotation Planner", layout="wide")
+st.title("🪑 Weekly Seat Rotation Planner")
 
-# --- State Init ---
+# --- Initialize State ---
 if "staff" not in st.session_state:
     st.session_state.staff = ["Ahmed", "Reem", "Lama", "Omar", "Noura", "Faisal"]
 
 if "schedule" not in st.session_state:
     st.session_state.schedule = pd.DataFrame("Remote", index=st.session_state.staff, columns=DAYS)
 
-if "groups" not in st.session_state:
-    st.session_state.groups = pd.Series([""] * len(st.session_state.staff), index=st.session_state.staff)
-
-# --- Sidebar Config ---
+# --- Sidebar Settings ---
 st.sidebar.header("⚙️ Settings")
 desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
-group_enabled = st.sidebar.checkbox("Enable Group Syncing", value=True)
 
 staff_input = st.sidebar.text_area("Edit Staff List (one per line)", value="\n".join(st.session_state.staff))
-if st.sidebar.button("Update Staff"):
-    new_staff = [s.strip() for s in staff_input.split("\n") if s.strip()]
-    st.session_state.staff = new_staff
-    st.session_state.schedule = pd.DataFrame("Remote", index=new_staff, columns=DAYS)
-    st.session_state.groups = pd.Series([""] * len(new_staff), index=new_staff)
+if st.sidebar.button("Update Staff List"):
+    staff = [s.strip() for s in staff_input.split("\n") if s.strip()]
+    st.session_state.staff = staff
+    st.session_state.schedule = pd.DataFrame("Remote", index=staff, columns=DAYS)
 
-# --- Smart Logic (Simplified) ---
-def smart_assign(schedule_df, group_series, desk_limit, sync_grouping):
-    updated = schedule_df.copy()
+# --- Smart Assignment Logic ---
+def smart_assign(schedule_df, desk_limit):
+    new_schedule = schedule_df.copy()
     for day in DAYS:
-        candidates = [name for name in schedule_df.index if schedule_df.loc[name, day] != "Locked"]
-        assigned = []
-        if sync_grouping:
-            grouped = defaultdict(list)
-            for name in candidates:
-                grouped[group_series.get(name, "")].append(name)
-            for group, members in grouped.items():
-                if len(assigned) + len(members) <= desk_limit:
-                    assigned.extend(members)
-        else:
-            random.shuffle(candidates)
-            assigned = candidates[:desk_limit]
+        editable_staff = [name for name in new_schedule.index if new_schedule.loc[name, day] != "Locked"]
+        random.shuffle(editable_staff)
+        for i, name in enumerate(new_schedule.index):
+            if new_schedule.loc[name, day] == "Locked":
+                continue
+            new_schedule.loc[name, day] = "Office" if i < desk_limit else "Remote"
+    return new_schedule
 
-        for name in schedule_df.index:
-            if schedule_df.loc[name, day] == "Locked":
-                updated.loc[name, day] = "Locked"
-            elif name in assigned:
-                updated.loc[name, day] = "Office"
-            else:
-                updated.loc[name, day] = "Remote"
-    return updated
+if st.button("🔁 Smart Assign Desks"):
+    st.session_state.schedule = smart_assign(st.session_state.schedule, desk_count)
 
-# --- Smart Assign Button ---
-if st.button("🧠 Smart Assign Desks"):
-    updated_schedule = smart_assign(
-        st.session_state.schedule,
-        st.session_state.groups,
-        desk_count,
-        group_enabled
-    )
-    st.session_state.schedule = updated_schedule
+# --- Editable Calendar Table ---
+st.markdown("### 📅 Weekly Schedule")
+edited_schedule = st.session_state.schedule.copy()
 
-# --- Calendar View ---
-calendar = []
-calendar.append(["Name", "Group"] + DAYS)
 for name in st.session_state.staff:
-    row = [name, st.session_state.groups[name]] + [STATUS_ICONS.get(st.session_state.schedule.loc[name, d], "❔") for d in DAYS]
-    calendar.append(row)
-st.markdown("### 🗂️ Calendar View")
-st.dataframe(pd.DataFrame(calendar[1:], columns=calendar[0]), use_container_width=True)
+    cols = st.columns(len(DAYS) + 1)
+    cols[0].markdown(f"**{name}**")
+    for i, day in enumerate(DAYS):
+        current = st.session_state.schedule.loc[name, day]
+        new_status = cols[i+1].selectbox("", STATUS_OPTIONS, index=STATUS_OPTIONS.index(current), key=f"{name}_{day}")
+        edited_schedule.loc[name, day] = new_status
 
-# --- Daily Office & Remote Summary ---
+st.session_state.schedule = edited_schedule
+
+# --- Daily Summary ---
+st.markdown("### 📊 Daily Summary (Office vs Remote)")
 summary = {"Day": [], "🏢 Office": [], "💻 Remote": []}
 for day in DAYS:
     counts = st.session_state.schedule[day].value_counts()
     summary["Day"].append(day)
     summary["🏢 Office"].append(counts.get("Office", 0))
     summary["💻 Remote"].append(counts.get("Remote", 0))
-
-st.markdown("### 📊 Daily Summary (People in Office & Remote)")
 st.dataframe(pd.DataFrame(summary), use_container_width=True)
 
-# --- Footer ---
+# --- Export Feature ---
+def convert_df(df):
+    return df.to_csv(index=True).encode("utf-8")
+
+csv = convert_df(st.session_state.schedule)
+st.download_button("📥 Export as CSV", data=csv, file_name="weekly_schedule.csv", mime="text/csv")
+
+# --- Footer Instructions ---
 st.divider()
 cols = st.columns([1, 2, 1])
 with cols[1]:
     st.markdown("""<div style='text-align: center; font-size: 15px;'>
-    ✏️ Use the dropdowns to manually update the week<br>
-    ✅ Click 'Smart Assign Desks' for auto-planning<br>
-    🔁 Group Sync keeps teams together (optional)
+    🧠 Click "Smart Assign Desks" to fill seats automatically<br>
+    ✏️ Manually adjust status per staff/day using the dropdowns<br>
+    🔒 Use "Locked" to prevent Smart Assign from overriding a day<br>
+    📤 Export the schedule to CSV using the download button
     </div>""", unsafe_allow_html=True)
 with cols[2]:
     st.markdown("""<div style='text-align: right; font-size: 13px; color: gray;'>
