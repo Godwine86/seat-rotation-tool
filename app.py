@@ -14,8 +14,11 @@ desk_count = st.sidebar.number_input("Available Desks", min_value=1, value=3)
 office_days_target = st.sidebar.number_input(
     "Days per person in Office (per week)", min_value=0, max_value=5, value=3
 )
-remote_days_target = st.sidebar.number_input(
-    "Days per person Remote/Online (per week)", min_value=0, max_value=5, value=2
+min_office = st.sidebar.number_input(
+    "Min staff in office per day", min_value=1, max_value=5, value=2
+)
+max_office = st.sidebar.number_input(
+    "Max staff in office per day", min_value=min_office, max_value=5, value=3
 )
 
 if "staff" not in st.session_state:
@@ -35,20 +38,20 @@ if st.sidebar.button("Update Staff List"):
         index=staff, columns=DAYS
     )
 
-# --- Fair Smart Assign ---
-def smart_assign(schedule_df, desk_limit, office_days_target, remote_days_target):
+# --- Fair Smart Assign with Min/Max ---
+def smart_assign(schedule_df, min_office, max_office, office_days_target):
     new_schedule = schedule_df.copy()
     staff_list = list(new_schedule.index)
     office_counts = {name: (new_schedule.loc[name] == "Office").sum() for name in staff_list}
     for day in DAYS:
-        # Respect locked cells
         locked = [name for name in staff_list if new_schedule.loc[name, day] == "Locked"]
-        # Only assign Office to those who haven't hit their target yet
-        available = [name for name in staff_list if name not in locked and office_counts[name] < office_days_target]
-        # Sort by fewest office days (fair), shuffle to break ties
-        random.shuffle(available)
-        sorted_candidates = sorted(available, key=lambda n: office_counts[n])
-        office_today = sorted_candidates[:desk_limit]
+        eligible = [name for name in staff_list if name not in locked and office_counts[name] < office_days_target]
+        # Sort by fewest office days so far, shuffle to break ties
+        random.shuffle(eligible)
+        sorted_candidates = sorted(eligible, key=lambda n: office_counts[n])
+        # Guarantee min_office, but not above max_office or available staff
+        need_office = min(max_office, max(min_office, len(sorted_candidates)))
+        office_today = sorted_candidates[:need_office]
         for name in staff_list:
             if new_schedule.loc[name, day] == "Locked":
                 continue
@@ -62,7 +65,7 @@ def smart_assign(schedule_df, desk_limit, office_days_target, remote_days_target
 # --- Smart Assign Button ---
 if st.button("🔁 Smart Assign Desks"):
     st.session_state.schedule = smart_assign(
-        st.session_state.schedule, desk_count, office_days_target, remote_days_target
+        st.session_state.schedule, min_office, max_office, office_days_target
     )
 
 # --- SMART TABLE ---
