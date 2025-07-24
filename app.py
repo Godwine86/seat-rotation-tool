@@ -103,11 +103,28 @@ for day in DAYS:
     summary["🔒 Locked"].append(counts.get("Locked", 0))
 st.dataframe(pd.DataFrame(summary), use_container_width=True)
 
-# Export
+# Prepare export DataFrame (copy to avoid editing UI DataFrame)
+export_df = st.session_state.schedule.copy()
+
+# Calculate counts for each day
+office_counts = []
+remote_counts = []
+for day in DAYS:
+    col = export_df[day]
+    office_counts.append((col == "Office").sum())
+    remote_counts.append((col == "Remote").sum())
+
+# Add the summary rows
+export_df.loc["Office Count"] = office_counts
+export_df.loc["Remote Count"] = remote_counts
+
+# Convert for download
 def convert_df(df):
     return df.to_csv(index=True).encode("utf-8")
-csv = convert_df(st.session_state.schedule)
+
+csv = convert_df(export_df)
 st.download_button("📥 Export as CSV", data=csv, file_name="weekly_schedule.csv", mime="text/csv")
+
 
 # Footer
 st.divider()
